@@ -9,6 +9,7 @@
 # TODO : des fioles un peu plus grosses
 # TODO : un dessin pour afficher en grisé les objets de boutiques qu'on peut pas acheter.
 # TODO : redessiner les barils, vu de haut.
+# TODO : dessin de dôme cassé.
 
 
 """
@@ -81,6 +82,7 @@
     "dome_color_ylw": [416, 96],
     "dome_color_grn": [416, 128],
     "dome_color_prp": [416, 160],
+    "dome_broken": [192, 84, 96, 96],
 
     "building_shop": [256, 192, 64, 64],
     "shopkeeper": [192, 192, 64, 64],
@@ -349,7 +351,6 @@ class RadioactivityLayer(squarity.Layer):
                     if GAME_RECT.in_bounds(coord_indic):
                         tile_indic = self.get_tile(coord_indic)
                         tile_indic.rad_strengths[rad_color_index] += strength
-                        #print("WIP", tile_indic.rad_strengths)
 
         #print("----------------")
         for c in squarity.RectIterator(GAME_RECT):
@@ -366,10 +367,14 @@ class InteracResType(Enum):
 class InteracResult():
     def __init__(
         self,
-        interac_res_type=InteracResType.NO_CHANGE,
         next_interac_id=None,
+        interac_res_type=None,
         event_result=None
     ):
+        if next_interac_id is not None and interac_res_type is None:
+            interac_res_type = InteracResType.SET_INTERAC_MODE
+        if interac_res_type is None:
+            interac_res_type = InteracResType.NO_CHANGE
         self.interac_res_type = interac_res_type
         self.next_interac_id = next_interac_id
         self.event_result = event_result
@@ -590,14 +595,17 @@ class FixedDesacDome():
     d'une shape spécifique d'un dôme.
     """
 
-    def __init__(self, dome_conf, pos_upleft):
+    def __init__(self, pos_upleft, dome_conf):
+        self.pos_upleft = pos_upleft
         (
-            sprite_name, offset_sprite,
+            self.sprite_name, self.offset_sprite,
             offsets_to_check, money_offset_details
         ) = dome_conf
-        self.offset_sprite = offset_sprite
-        self.coord_dome = pos_upleft.clone().move_by_vect(self.offset_sprite)
-        self.gobj_dome = GameObject(self.coord_dome, sprite_name)
+        self.coord_dome = self.pos_upleft.clone()
+        # TODO : Si cet histoire d'offset devient trop relou, on change tous les sprite de dôme en 3x3,
+        # tant pis si y'aura du vide sur certaines cases.
+        self.coord_dome.move_by_vect(self.offset_sprite)
+        self.gobj_dome = GameObject(self.coord_dome, self.sprite_name)
         self.offset_positions_to_check = [
             Coord(ofs[0], ofs[1]) for ofs in offsets_to_check
         ]
@@ -616,7 +624,7 @@ class FixedDesacDome():
             )
         # Liste de gobj à ajouter/enlever pour montrer que ce dôme est sélectionné.
         self.gobjs_show_selection = tuple([
-            GameObject(self.coord_dome, sprite_name)
+            GameObject(self.coord_dome, self.sprite_name)
             for _ in range(3)
         ])
         # Ça fait des quadruplons, car on a ce même game object dans les 4 dômes rotation,
@@ -626,6 +634,18 @@ class FixedDesacDome():
             GameObject(pos_upleft, "selection_rect_white"),
         )
 
+    def break_dome(self):
+        self.gobj_dome.sprite_name = "dome_broken"
+        self.coord_dome = self.pos_upleft
+
+    def repair_dome(self):
+        self.gobj_dome.sprite_name = self.sprite_name
+        old_coord_dome = self.coord_dome
+        self.coord_dome = self.pos_upleft.clone()
+        self.coord_dome.move_by_vect(self.offset_sprite)
+        if old_coord_dome != self.coord_dome:
+            self.gobj_dome.move_to(self.coord_dome)
+
 
 class DesacRes(Enum):
     FAIL_UNREVEALED_TILES = 0
@@ -633,7 +653,6 @@ class DesacRes(Enum):
     FAIL_BREAK_NO_BARREL = 2
     FAIL_BREAK_COLOR_MISMATCH = 3
     SUCCESS = 4
-    SUCCESS_WITH_ROTATION = 5
 
 
 class DesactivationResult():
@@ -647,7 +666,9 @@ class DesactivationResult():
     - le dôme casse sur une tile vide.
     - le dôme casse sur une tile avec un baril n'ayant pas la bonne couleur.
     - ok
-    - ok, mais faudrait tourner le dôme - rot_index et rot_steps.
+
+    Si il faut tourner le dôme, rot_steps sera une liste non vide,
+    indiquant les offsets de rotation successifs.
     """
 
     # Temps, en milliseconde, pour parcourir une case du jeu.
@@ -675,16 +696,17 @@ class DesactivationResult():
         self.dome_travel_delay = None
         self.rad_color = rad_color
 
-    def is_desactivation_ok(self):
-        return self.desac_res in (
-            DesacRes.SUCCESS,
-            DesacRes.SUCCESS_WITH_ROTATION
-        )
-
     def has_failed_from_reveals(self):
         return self.desac_res in (
             DesacRes.FAIL_MAIN_TILE_REVEALED,
             DesacRes.FAIL_UNREVEALED_TILES
+        )
+
+    def must_show_dome_anim(self):
+        return self.desac_res in (
+            DesacRes.SUCCESS,
+            DesacRes.FAIL_BREAK_COLOR_MISMATCH,
+            DesacRes.FAIL_BREAK_NO_BARREL,
         )
 
     def compute_dome_travel_delay(self, coord_return_dome):
@@ -704,16 +726,18 @@ class DesacDome():
     La personne qui joue devra définir le dôme à mettre dessus.
     """
 
-    # TODO : parameter orders. pos_upleft on first
-    def __init__(self, game, shape, pos_upleft, rad_color):
+    def __init__(self, game, pos_upleft, rad_color, shape):
         self.game = game
         self.layer_dome = self.game.layer_movable_objs_1
         self.layer_color_indicator = self.game.layer_movable_objs_2
         self.shape = shape
         self.pos_upleft = pos_upleft.clone()
         self.rad_color = rad_color
+        # Devient False quand le dôme se casse.
+        self.valid = True
         self.gobj_dome_cur = None
         self.gobjs_show_selection = []
+        self.gobj_dome_broken = None
         self.rot_index_cur = 0
         self.selected = False
         self.selection_rect = squarity.Rect(
@@ -726,20 +750,20 @@ class DesacDome():
         self.gobj_ground_base = GameObject(pos_upleft, "dome_ground_base")
         self.game.layer_background.add_game_object(self.gobj_ground_base)
 
-        if shape is not None and rad_color is not None:
-            self.define_dome(shape, rad_color)
+        if rad_color is not None and shape is not None:
+            self.define_dome(rad_color, shape)
         else:
-            self.shape = None
             self.rad_color = None
+            self.shape = None
 
-    def define_dome(self, shape, rad_color):
-        self.shape = shape
+    def define_dome(self, rad_color, shape):
         self.rad_color = rad_color
+        self.shape = shape
         # -- Création des Fixed desactivation dome --
         # Au max, on a 4 instances de DesacDome, indiquant les différentes positions du dôme.
         # Quand c'est le dôme circulaire, on a une seule instance.
         self.dome_rotations = [
-            FixedDesacDome(dome_conf, self.pos_upleft)
+            FixedDesacDome(self.pos_upleft, dome_conf)
             for dome_conf in DESAC_DOME_CONFIGS[shape]
         ]
         # -- Placement du game object indiquant la couleur du dôme --
@@ -756,7 +780,11 @@ class DesacDome():
         self._show_current_dome()
 
     def has_dome(self):
-        return self.shape is not None and self.rad_color is not None
+        return (
+            self.rad_color is not None
+            and self.shape is not None
+            and self.valid
+        )
 
     def get_fixed_dome_cur(self):
         return self.dome_rotations[self.rot_index_cur]
@@ -773,16 +801,30 @@ class DesacDome():
         for gobj in self.gobjs_show_selection:
             self.layer_dome.remove_game_object(gobj)
 
+    def break_dome(self):
+        self.valid = False
+        for fixed_desac_dome in self.dome_rotations:
+            fixed_desac_dome.break_dome()
+
+    def repair_dome(self):
+        self.valid = True
+        for fixed_desac_dome in self.dome_rotations:
+            fixed_desac_dome.repair_dome()
+
     def _show_current_dome(self):
         was_selected = self.selected
         if was_selected:
             self.unselect()
         if self.gobj_dome_cur is not None:
             self.layer_dome.remove_game_object(self.gobj_dome_cur)
+
         dome_rotation_cur = self.get_fixed_dome_cur()
         self.gobj_dome_cur = dome_rotation_cur.gobj_dome
-        self.gobjs_show_selection = dome_rotation_cur.gobjs_show_selection
-        #print(self.gobj_dome_cur)
+        if self.valid:
+            self.gobjs_show_selection = dome_rotation_cur.gobjs_show_selection
+        else:
+            self.gobjs_show_selection = []
+
         self.layer_dome.add_game_object(self.gobj_dome_cur)
         if was_selected:
             self.select()
@@ -843,28 +885,31 @@ class DesacDome():
                 failed_coords=failed_coords
             )
 
+        rot_index_ok, rot_steps_ok = possible_rot_ok
+        if rot_index_ok == self.rot_index_cur:
+            rot_steps = None
+        else:
+            rot_steps = list(rot_steps_ok)
+
         tile_radac = self.game.layer_radact.get_tile(coord_desac)
         if tile_radac.barrel_color is None:
             print("EPIC FAIL! Vous méritez de perdre la partie !!")
-            return DesactivationResult(DesacRes.FAIL_BREAK_NO_BARREL)
-        if tile_radac.barrel_color != self.rad_color:
+            desac_res = DesacRes.FAIL_BREAK_NO_BARREL
+            rad_color_res = None
+        elif tile_radac.barrel_color != self.rad_color:
             print("EPIC FAIL! Vous méritez de perdre la partie !!")
-            return DesactivationResult(DesacRes.FAIL_BREAK_COLOR_MISMATCH)
-
-        rot_index_ok, rot_steps_ok = possible_rot_ok
-        if rot_index_ok == self.rot_index_cur:
-            return DesactivationResult(
-                DesacRes.SUCCESS,
-                rot_index=rot_index_ok,
-                rad_color=self.rad_color,
-            )
+            desac_res = DesacRes.FAIL_BREAK_COLOR_MISMATCH
+            rad_color_res = None
         else:
-            return DesactivationResult(
-                DesacRes.SUCCESS_WITH_ROTATION,
-                rot_index=rot_index_ok,
-                rot_steps=list(rot_steps_ok),
-                rad_color=self.rad_color,
-            )
+            desac_res = DesacRes.SUCCESS
+            rad_color_res=self.rad_color
+
+        return DesactivationResult(
+            desac_res,
+            rot_index=rot_index_ok,
+            rot_steps=rot_steps,
+            rad_color=rad_color_res,
+        )
 
 
 class InteractionUseDesacDome(InteractionBase):
@@ -895,12 +940,17 @@ class InteractionUseDesacDome(InteractionBase):
 
     def try_to_change_interaction_mode(self, coord):
         for desac_dome in self.desac_domes:
-            if desac_dome.selection_rect.in_bounds(coord):
-                self.selected_dome = desac_dome
-                return InteracResult(
-                    InteracResType.SET_INTERAC_MODE,
-                    "use_desac_dome"
-                )
+            if (
+                desac_dome.selection_rect.in_bounds(coord)
+                # and desac_dome.has_dome()  # TODO WIP
+            ):
+                if desac_dome.has_dome():
+                    self.selected_dome = desac_dome
+                    return InteracResult("use_desac_dome")
+                else:
+                    print("TODO : Vous avez cliqué sur un dôme cassé.")
+                    print("Faudrait rajouter un mode d'interaction pour le réparer.")
+                    return
 
     def on_enter(self):
         self.selected_dome.select()
@@ -910,18 +960,12 @@ class InteractionUseDesacDome(InteractionBase):
         for desac_dome in self.desac_domes:
             if desac_dome.selection_rect.in_bounds(coord):
                 if self.selected_dome == desac_dome:
-                    # TODO : default InteracResType, when next_interac_id is defined.
-                    return InteracResult(
-                        InteracResType.SET_INTERAC_MODE,
-                        "reveal_tile"
-                    )
+                    return InteracResult("reveal_tile")
                 elif desac_dome.has_dome():
                     self.selected_dome.unselect()
                     self.selected_dome = desac_dome
                     self.selected_dome.select()
-                else:
-                    print("TODO : Ce dome est vide pour l'instant")
-                return
+                    return
 
         desac_result = self._process_desac_try(coord)
         if desac_result.has_failed_from_reveals():
@@ -934,34 +978,23 @@ class InteractionUseDesacDome(InteractionBase):
                 )
             )
             return InteracResult(event_result=event_result)
-        elif desac_result.is_desactivation_ok():
+        else:
             event_result = squarity.EventResult()
             func = lambda: self.process_desactivation_anim(desac_result)
             event_result.add_delayed_callback(squarity.DelayedCallBack(1, func))
             event_result.plocks_custom.append("lock_desactivation")
-            return InteracResult(
-                InteracResType.SET_INTERAC_MODE,
-                next_interac_id="reveal_tile",
-                event_result=event_result
-            )
-        else:
-            # TODO : là, faudrait juste casser le dôme, et non pas terminer le jeu.
-            self.end_game_with_fail(
-                "Fail !! Mauvaise couleur, ou bien pas de baril !!! Cliquez sur Exécutez pour recommencer une partie."
-            )
-            print("zut")
+            return InteracResult("reveal_tile", event_result=event_result)
 
     def on_out(self):
         print("on out use dome")
-        # TODO : on devrait pas avoir besoin de checker ce truc.
         if self.selected_dome:
-            print("unselect")
             self.selected_dome.unselect()
         self.selected_dome = None
 
     def add_desac_dome(self, desac_dome):
         self.desac_domes.append(desac_dome)
 
+    # TODO : ça sert à rien une fonction qu'on appelle qu'une fois. Faut reflower le bazar.
     def _process_desac_try(self, coord_desac):
         desac_result = self.selected_dome.check_desactivation(coord_desac)
         #print("desac_result", desac_result.desac_res)
@@ -973,8 +1006,9 @@ class InteractionUseDesacDome(InteractionBase):
                 self.gobjs_red_crosses.append(gobj)
                 self.layer_ihm.add_game_object(gobj)
 
-        elif desac_result.is_desactivation_ok():
+        elif desac_result.must_show_dome_anim():
             self.selected_dome.unselect()
+            # TODO : y'a pas une fonction qui fait ça plus court ?
             fixed_desac_dome = self.selected_dome.dome_rotations[
                 desac_result.rot_index
             ]
@@ -1360,8 +1394,8 @@ class InteractionMainShop(InteractionBase):
     def try_to_change_interaction_mode(self, coord):
         if self.main_shop.rect_shop.in_bounds(coord):
             return InteracResult(
+                "main_shop",
                 InteracResType.STACK_INTERAC_MODE,
-                "main_shop"
             )
 
     def process_click(self, coord):
@@ -1373,7 +1407,7 @@ class InteractionMainShop(InteractionBase):
             ]
             close_shop = "window_button_close" in sprite_names_on_coord
         if close_shop:
-            return InteracResult(InteracResType.UNSTACK_INTERAC_MODE)
+            return InteracResult(None, InteracResType.UNSTACK_INTERAC_MODE)
 
         if self.main_shop.select_buyable(coord) is not None:
             print("selected buyable", self.main_shop.selected_buyable)
@@ -1382,9 +1416,7 @@ class InteractionMainShop(InteractionBase):
                 print("This thing is too expensive")
                 return None
             else:
-                return InteracResult(
-                    InteracResType.SET_INTERAC_MODE, "place_building"
-                )
+                return InteracResult("place_building")
         return None
 
     def on_out(self):
@@ -1431,8 +1463,8 @@ class InteractionDefineDome(InteractionBase):
             if desac_dome.selection_rect.in_bounds(coord):
                 self.selected_dome = desac_dome
                 return InteracResult(
+                    "define_dome",
                     InteracResType.STACK_INTERAC_MODE,
-                    "define_dome"
                 )
 
     def on_enter(self):
@@ -1450,14 +1482,14 @@ class InteractionDefineDome(InteractionBase):
             ]
             close_shop = "window_button_close" in sprite_names_on_coord
         if close_shop:
-            return InteracResult(InteracResType.UNSTACK_INTERAC_MODE)
+            return InteracResult(None, InteracResType.UNSTACK_INTERAC_MODE)
 
         for key_dome, val_dome in self.available_domes.items():
             active, _, __, rect_interac = val_dome
             if active and rect_interac.in_bounds(coord):
                 rad_color, shape = key_dome
                 self.define_dome(self.selected_dome, rad_color, shape)
-                return InteracResult(InteracResType.UNSTACK_INTERAC_MODE)
+                return InteracResult(None, InteracResType.UNSTACK_INTERAC_MODE)
 
         return None
 
@@ -1491,7 +1523,6 @@ class InteractionDefineDome(InteractionBase):
             self.layer_window_define_dome.add_game_object(gobj_color)
             x += 5
 
-    # TODO : homogénéité ordre des params. Partout, c'est color puis shape.
     def make_dome_unavailable(self, rad_color, shape):
         _, gobj_dome, gobj_color, __ = self.available_domes[(rad_color, shape)]
         self.layer_window_define_dome.remove_game_object(gobj_dome)
@@ -1543,7 +1574,7 @@ class InteractionPlaceBuilding(InteractionBase):
 
     def process_click(self, coord):
         if self.main_shop.rect_shop.in_bounds(coord):
-            return InteracResult(InteracResType.UNSTACK_INTERAC_MODE)
+            return InteracResult(None, InteracResType.UNSTACK_INTERAC_MODE)
 
         rect_to_check = squarity.Rect(coord.x, coord.y, *self.building_size)
         print("rect_to_check", rect_to_check)
@@ -1604,7 +1635,7 @@ class InteractionPlaceBuilding(InteractionBase):
                 "dome_ground_base",
                 self.main_shop.selected_buyable
             )
-            return InteracResult(InteracResType.UNSTACK_INTERAC_MODE)
+            return InteracResult(None, InteracResType.UNSTACK_INTERAC_MODE)
 
     def on_out(self):
         self.remove_ihm_gobjs()
@@ -1937,6 +1968,7 @@ class GameModel(squarity.GameModelBase):
         # Si je pouvais arriver à faire du async/await dans squarity, ce serait trop cool.
         delay_ms = None
 
+        # Rotation du dôme, si nécessaire.
         if desac_result.anim_step == 0:
             rot_step = desac_result.rot_steps.pop(0)
             desac_result.desac_dome.rotate(rot_step)
@@ -1944,6 +1976,7 @@ class GameModel(squarity.GameModelBase):
             if not desac_result.rot_steps:
                 desac_result.anim_step += 1
 
+        # Déplacement du dôme vers la case à désactiver
         elif desac_result.anim_step == 1:
             fixed_desac_dome = desac_result.desac_dome.get_fixed_dome_cur()
             dome_move_delay = desac_result.dome_travel_delay
@@ -1962,18 +1995,29 @@ class GameModel(squarity.GameModelBase):
             delay_ms = dome_move_delay + 300
             desac_result.anim_step += 1
 
+
+        #  TODO : animation avec une explosion dans le dôme. Boum !!!
         elif desac_result.anim_step == 2:
-            #  TODO : animation avec une explosion dans le dôme. Boum !!!
-            self.deradioactivize(desac_result.coord_desac)
-            fixed_desac_dome = desac_result.desac_dome.get_fixed_dome_cur()
-            self.loot_manager.add_loot_gobjs_from_desac(
-                fixed_desac_dome,
-                desac_result.rad_color,
-                desac_result.coord_desac
-            )
+            # C'est conceptuellement assez moche. On croit que la fonction process_desactivation_anim
+            # ne s'occupe que de gérer des animations dans le jeu, alors qu'elle contient de la game logic,
+            # et elle modifie la situation du jeu. Elle appelle deradioactivize et break_dome. Pas mieux.
+            # TODO : fonction "must break"
+            if desac_result.desac_res in (DesacRes.FAIL_BREAK_COLOR_MISMATCH, DesacRes.FAIL_BREAK_NO_BARREL):
+                # On casse le dôme !
+                desac_result.desac_dome.break_dome()
+            else:
+                # Désactivation de la case, ajout des objets de loot (qui se débrouillent pour se déplacer).
+                self.deradioactivize(desac_result.coord_desac)
+                fixed_desac_dome = desac_result.desac_dome.get_fixed_dome_cur()
+                self.loot_manager.add_loot_gobjs_from_desac(
+                    fixed_desac_dome,
+                    desac_result.rad_color,
+                    desac_result.coord_desac
+                )
             delay_ms = 300
             desac_result.anim_step += 1
 
+        # Retour du dôme à sa position d'origine.
         elif desac_result.anim_step == 3:
             fixed_desac_dome = desac_result.desac_dome.get_fixed_dome_cur()
             dome_move_delay = desac_result.dome_travel_delay
@@ -2009,7 +2053,7 @@ class GameModel(squarity.GameModelBase):
         if building_type != "dome_ground_base":
             raise NotImplemented("TODO buildings!!")
         # TODO : une petite animation de construction de building, ce serait classe !
-        desac_dome = DesacDome(self, None, pos_upleft, None)
+        desac_dome = DesacDome(self, pos_upleft, None, None)
         self.interact_mode_define_dome.add_empty_desac_dome(desac_dome)
         rect_dome = squarity.Rect(pos_upleft.x, pos_upleft.y, 3, 3)
         if (
@@ -2027,7 +2071,7 @@ class GameModel(squarity.GameModelBase):
             tile.has_b = True
 
     def define_dome(self, dome_to_define, rad_color, shape):
-        dome_to_define.define_dome(shape, rad_color)
+        dome_to_define.define_dome(rad_color, shape)
         self.interact_mode_define_dome.remove_empty_desac_dome(dome_to_define)
         self.interact_mode_define_dome.make_dome_unavailable(rad_color, shape)
         self.interact_mode_use_desac_dome.add_desac_dome(dome_to_define)
