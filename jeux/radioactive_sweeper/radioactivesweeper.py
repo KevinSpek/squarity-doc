@@ -1,11 +1,9 @@
 # https://squarity.fr/game/#fetchez_githubgist_darkrecher/6ac1768472ecd954d4818ef1dbd59d6c/raw/radioactivesweeper.txt
 # https://tinyurl.com/radswp123
 # https://raw.githubusercontent.com/darkrecher/squarity-doc/refs/heads/master/jeux/radioactive_sweeper/radioactive_tileset.png
-# https://i.ibb.co/1SwMTXY/radioactive-tileset.png
+# https://i.ibb.co/Kxc3v3Gp/radioactive-tileset.png
 # taille de l'aire de jeu : 30, 20 ??
 
-# TODO : réajuster les images des dômes et des dessins de couleur, pour que le dessin touche pas les bords.
-# TODO : faire un vrai dessin pour window_button_close.
 # TODO : des fioles un peu plus grosses
 # TODO : un dessin pour afficher en grisé les objets de boutiques qu'on peut pas acheter.
 # TODO : redessiner les barils, vu de haut.
@@ -105,7 +103,7 @@
     "window_border_d": [352, 288],
     "window_border_dr": [384, 288],
     "window_bg_outer": [416, 192],
-    "window_button_close": [0, 96],
+    "window_button_close": [96, 288],
     "plus_sign": [416, 256],
     "right_arrow": [448, 288],
     "semicolon": [448, 192],
