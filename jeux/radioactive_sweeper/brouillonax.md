@@ -766,6 +766,7 @@ Si un dôme casse, ou si une désactivation n'est pas possible car on n'a pas r�
 
 L'animation de désactivation d'un baril est plus rapide quand on l'effectue via le mode dôme, par rapport à une désactivation "manuelle". C'est un autre avantage "Quality of Life" de cette construction permettant de poser les drapeaux.
 
+Le mode automatique : on clique pour l'activer, on clique sur les cases à drapeaux pour indiquer où on veut envoyer les dômes (dans le bon ordre), puis on reclique sur le bouton pour démarrer l'envoi des dômes. Et tout se fait automatiquement. Si un dôme pète ou si y'a un craquelague, on interrompt tout. Comme ça, pas besoin de coder un truc compliqué où on peut cliquer sur des trucs pendant que les anims se font.
 
 
 ## Comment on pourrait ajouter des étoiles dans les niveaux.
@@ -843,6 +844,10 @@ Le nombre de cube gagné en fonction du niveau du cube n'est pas linéaire, pour
  - niveau de cube 4 : +5 cubes
  - etc.
 
+Nan, pas fun le Fibonacci. On va faire du +1, +2, +3, etc.
+
+Ça fait une progression comme ça : 1, 2, 4, 7, 11, 16, 22, 29. Ça progresse plus vite au début, sans aller sur des quantités astronomiques vers la fin.
+
 Les dômes de bords et de coins sont toujours utiles, mais pour les barils dans les bords et les coins. Mais lorsqu'il y a des murs impassables, on peut obliger l'utilisation de ces dômes. Ce qui permettra de faire quelques niveaux labyrinthiques, pour le fun.
 
 Petit souci : on peut utiliser un dôme de bord en plein milieu de l'aire de jeu, pour avoir moins de cases à déduire avant. (Les cases qui ne sont pas sous le dôme de bord ne seront ni craquelées, ni cubifiée). Pour régler ça, bottage en touche. On peut pas envoyer un dôme de bord si on n'est pas au bord.
@@ -852,7 +857,7 @@ Visuellement, c'est pas des étoiles, mais des boulons. C'est plus fun.
 Liste des boulons gagnables :
 
  - On ne casse aucun dôme,
- - On obtient suffisamment de cubes et/ou  on monte le niveau de cube assez haut sur une case
+ - On obtient suffisamment de cubes et/ou on monte le niveau de cube assez haut sur une case
  - On récupère suffisamment de fioles (avec ou sans les contraintes de couleur)
  - Non-craquelage des cases
 
@@ -860,9 +865,9 @@ Et on rajoute un type de baril, puisque y'a moins de type de dôme et que y'en a
 
 Mais ce serait bien que y'ait d'autres trucs à acheter, du coup.
 
-Le fameux séparateur de couleur ?
+Le fameux séparateur de couleur ? Ou alors, un détecteur indiquant les couleurs et un autre indiquant les nombres. C'est plus clair et ça fait un truc de plus à acheter. Quand y'a aucun détecteur, on sait juste si une case est avec ou sans radioactivité.
 
-Un truc qui permet d'indiquer précisément les points de chaque couleur, sur une case spécifiée ? ouais, ça c'est cool. Et la portée est assez longue, mais on choisit l'orientation au moment de le poser.
+Un truc qui permet d'indiquer précisément les points de chaque couleur, sur une case spécifiée ? ouais, ça c'est cool. Et la portée est assez longue, mais on choisit l'orientation au moment de le poser. Ou alors, c'est juste un bâtiment, et ensuite on choisit une case à détailler. C'est payant à chaque fois. Mais on peut revoir gratuitement le détail d'une case payée. Et le détail se remet à jour, évidemment.
 
 
 
