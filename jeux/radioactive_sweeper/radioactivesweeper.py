@@ -4,7 +4,6 @@
 # https://i.ibb.co/Kxc3v3Gp/radioactive-tileset.png
 # taille de l'aire de jeu : 30, 20 ??
 
-# TODO : un dessin pour afficher en grisé les objets de boutiques qu'on peut pas acheter. (ou alors on prendra juste le truc qui assombri)
 # TODO : redessiner les barils, vu de haut.
 # TODO : dessin de dôme cassé.
 
@@ -101,7 +100,7 @@
     "window_border_dl": [320, 288],
     "window_border_d": [352, 288],
     "window_border_dr": [384, 288],
-    "window_bg_outer": [416, 192],
+    "transparent_dark": [416, 192],
     "window_button_close": [96, 288],
     "plus_sign": [416, 256],
     "right_arrow": [448, 288],
@@ -1244,6 +1243,10 @@ class MainShop():
         self.selected_buyable = None
         self.gobjs_resources = []
         self.gobjs_buyables = []
+        self.gobjs_dark = []
+        self.gobjs_red_crosses = [
+            GameObject(Coord(x, 0), "red_cross") for x in range(2, 5)
+        ]
         self.render_static_gobjs()
         self.render_buyables()
 
@@ -1281,6 +1284,7 @@ class MainShop():
                 self.layer_shop_ihm.add_game_object(gobj)
                 self.gobjs_buyables.append(gobj)
             current_y += 2
+        self._render_too_expensive()
 
     def render_resources(self):
         for gobj in self.gobjs_resources:
@@ -1297,6 +1301,7 @@ class MainShop():
             cur_x += 4
             for gobj in gobjs_numeric_val:
                 self.layer_shop_ihm.add_game_object(gobj)
+        self._render_too_expensive()
 
     def select_buyable(self, coord):
         self.selected_buyable = None
@@ -1327,9 +1332,35 @@ class MainShop():
                 del self.locked_buyables[unlock_id]
         self.render_buyables()
 
+    def feedback_too_expensive(self, buyable=None):
+        if buyable is None:
+            buyable = self.selected_buyable
+        y = buyable.y_location
+        self.remove_feedback_too_expensive()
+        for gobj in self.gobjs_red_crosses:
+            # TO-DO LIB : une vraie fonction pour déplacer un objet dans un layer.
+            # Parce que là, c'est bourrin.
+            gobj._coord.y = y
+            self.layer_shop_ihm.add_game_object(gobj)
+
+    def remove_feedback_too_expensive(self):
+        for gobj in self.gobjs_red_crosses:
+            if gobj.layer_owner is not None:
+                self.layer_shop_ihm.remove_game_object(gobj)
+
     def unselect(self):
         self.selected_buyable = None
 
+    def _render_too_expensive(self):
+        for gobj in self.gobjs_dark:
+            self.layer_shop_ihm.remove_game_object(gobj)
+        self.gobjs_dark = []
+        for buyable in self.buyables:
+            if not self.loot_manager.can_buy(buyable):
+                y = buyable.y_location
+                gobj = GameObject(Coord(3, y), "transparent_dark")
+                self.layer_shop_ihm.add_game_object(gobj)
+                self.gobjs_dark.append(gobj)
 
 """
 Comment on gère le placement d'un building dans l'aire de jeu ?
@@ -1407,9 +1438,14 @@ class InteractionMainShop(InteractionBase):
         if self.main_shop.select_buyable(coord) is not None:
             print("selected buyable", self.main_shop.selected_buyable)
             if not self.loot_manager.can_buy(self.main_shop.selected_buyable):
-                # TODO : un feedback d'ihm meilleur pour montrer que c'est trop cher.
-                print("This thing is too expensive")
-                return None
+                self.main_shop.feedback_too_expensive()
+                event_result = squarity.EventResult()
+                event_result.add_delayed_callback(
+                    squarity.DelayedCallBack(
+                        500, self.main_shop.remove_feedback_too_expensive
+                    )
+                )
+                return InteracResult(event_result=event_result)
             else:
                 return InteracResult("place_building")
         return None
@@ -1430,6 +1466,7 @@ class InteractionDefineDome(InteractionBase):
         layer_window_bg,
         layer_window_frame,
         layer_define_dome_ihm,
+        layer_movable_objs,
         define_dome,
     ):
         super().__init__("define_dome")
@@ -1439,6 +1476,7 @@ class InteractionDefineDome(InteractionBase):
         self.layer_window_bg = layer_window_bg
         self.layer_window_frame = layer_window_frame
         self.layer_define_dome_ihm = layer_define_dome_ihm
+        self.layer_movable_objs = layer_movable_objs
         self.define_dome = define_dome
         self.empty_desac_domes = []
         self.selected_dome = None
@@ -1452,6 +1490,13 @@ class InteractionDefineDome(InteractionBase):
                 self.available_domes[(rad_color, shape)] = (
                     False, None, None, None
                 )
+        self.gobj_ground_base = GameObject(
+            Coord(0, 0),
+            "dome_ground_base",
+            image_modifier=squarity.ComponentImageModifier()
+        )
+        self.gobj_ground_base.plock_transi = squarity.PlayerLockTransi.INVISIBLE
+        self.gobj_ground_base.set_callback_end_transi(self._show_layers)
         # TODO : mettre un sprite de ground_dome_base en haut à gauche. Avec une transition classe, comme la tête du robot (qu'est pas encore faite mais ça va bien)
 
     def try_to_change_interaction_mode(self, coord):
@@ -1464,6 +1509,30 @@ class InteractionDefineDome(InteractionBase):
                 )
 
     def on_enter(self):
+        self.gobj_ground_base.move_to(self.selected_dome.pos_upleft)
+        self.gobj_ground_base.image_modifier.area_scale_x = 1.0
+        self.gobj_ground_base.image_modifier.area_scale_y = 1.0
+        # TO-DO LIB : je devrais pas avoir besoin de définir ça.
+        self.gobj_ground_base.image_modifier.img_size_x = 3 * 32
+        self.gobj_ground_base.image_modifier.img_size_y = 3 * 32
+        self.layer_movable_objs.add_game_object(self.gobj_ground_base)
+        self.gobj_ground_base.add_transition(
+            squarity.TransitionSteps(
+                "coord",
+                ((250, Coord(1, 1)), )
+            )
+        )
+        self.gobj_ground_base.image_modifier.add_transition(
+            squarity.TransitionSteps("area_scale_x", ((250, 0.8), ))
+        )
+        self.gobj_ground_base.image_modifier.add_transition(
+            squarity.TransitionSteps("area_scale_y", ((250, 0.8), ))
+        )
+        # TODO : une transition sur la taille du ground base, pour que ça rentre dans la fenêtre.
+
+    def _show_layers(self):
+        self.layer_movable_objs.remove_game_object(self.gobj_ground_base)
+        self.layer_define_dome_ihm.add_game_object(self.gobj_ground_base)
         self.layers.append(self.layer_window_bg)
         self.active_ihm_layer_indexes.append(len(self.layers) - 1)
         self.layers.append(self.layer_window_frame)
@@ -1492,6 +1561,7 @@ class InteractionDefineDome(InteractionBase):
         return None
 
     def on_out(self):
+        self.layer_define_dome_ihm.remove_game_object(self.gobj_ground_base)
         # TO-DO LIB : non mais là, j'aurais du gérer la variable "visible" des layers.
         # C'est nimp ce qui se passe, là.
         for layer_index in self.active_ihm_layer_indexes[::-1]:
@@ -1691,7 +1761,9 @@ class GameModel(squarity.GameModelBase):
         self.layer_block = squarity.Layer(self, self.w, self.h, False)
         self.layers.append(self.layer_block)
         # Contient les objets :
-        # dome_full, dome_border_x, dome_corner_x, dome_tshape_x, cancel_shop
+        #  - dome_full, dome_border_x, dome_corner_x, dome_tshape_x, cancel_shop,
+        #  - le loot qui se déplace d'un baril désactivé vers la shop.
+        #  - le ground_base qui se déplace quand on ouvre la fenêtre de define dome.
         self.layer_movable_objs_1 = squarity.Layer(self, self.w, self.h, True)
         self.layers.append(self.layer_movable_objs_1)
         # Contient les croix rouge indiquant qu'on a mal posé un dôme.
@@ -1750,6 +1822,7 @@ class GameModel(squarity.GameModelBase):
             self.layer_window_bg,
             self.layer_window_frame,
             self.layer_define_dome_ihm,
+            self.layer_movable_objs_1,
             self.define_dome,
         )
         for rad_color in RadColor:
@@ -1806,7 +1879,7 @@ class GameModel(squarity.GameModelBase):
     def init_window_background(self, layer_window_bg):
         for coord in squarity.Sequencer.iter_on_rect(GAME_RECT):
             if GAME_RECT.on_border(coord):
-                sprite_name = "window_bg_outer"
+                sprite_name = "transparent_dark"
             else:
                 sprite_name = "window_bg_inner"
             gobj = GameObject(coord, sprite_name)
