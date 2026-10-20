@@ -334,7 +334,7 @@ La fonction `print` écrit ce que vous lui indiquez en paramètre. Du texte simp
 
 Cette fonction est très utile pour le déboguage, c'est à dire lorsque votre programme fait des messages d'erreur ou qu'il n'exécute pas ce que vous aviez prévu. Vous placez des `print` à différents endroits pour essayer de comprendre ce qu'il se passe, le chemin d'exécution, le contenu des variables, etc.
 
-Si vous n'êtes pas très à l'aise en python, vous pouvez vous entrainer en allant sur ce site : https://trinket.io/python3 . Il s'agit d'un interpréteur python dans votre navigateur. Vous écrivez du code dans la partie gauche, vous cliquez sur le bouton "Play" et le résultat de votre programme s'affiche dans la partie droite.
+Si vous n'êtes pas très à l'aise en python, vous pouvez vous entrainer en allant sur ce site : https://coddy.tech/playground/fr/python . Il s'agit d'un interpréteur python dans votre navigateur. Vous écrivez du code dans la partie gauche, vous cliquez sur le bouton "Exécuter" et le résultat de votre programme s'affiche dans la partie droite.
 
 
 ## On en fait des caisses
